@@ -6,20 +6,10 @@ import shutil
 
 items = []
 folder = ""
-target_size_var = None
-
-def get_target_size():
-    try:
-        val = int(target_size_var.get().strip())
-        if val > 0:
-            return val
-    except:
-        pass
-    return 1024
 
 def select_folder():
     global folder, items
-    new_folder = filedialog.askdirectory(title="Select folder containing images")
+    new_folder = filedialog.askdirectory(title="Open folder")
     if not new_folder:
         return
     folder = new_folder
@@ -34,10 +24,12 @@ def select_folder():
     for idx, p in enumerate(paths):
         try:
             im = Image.open(p)
-            var = tk.IntVar(value=0)
             im.thumbnail((150, 150), Image.LANCZOS)
-            color_pil = im.copy()
             photo = ImageTk.PhotoImage(im)
+            faded_pil = im.copy().convert("RGBA")
+            faded_pil.putalpha(128)
+            faded_photo = ImageTk.PhotoImage(faded_pil)
+            target_var = tk.IntVar(value=0)
             row = idx // columns
             col = idx % columns
             frame = tk.Frame(inner_frame, bd=2, relief=tk.GROOVE, highlightbackground="dodgerblue", highlightthickness=0)
@@ -47,42 +39,66 @@ def select_folder():
             lbl.pack()
             name = tk.Label(frame, text=os.path.basename(p), font=("", 9), wraplength=150)
             name.pack()
-            def toggle_handler(event, v=var, f=frame):
-                new_val = 1 - v.get()
-                v.set(new_val)
-                if new_val:
-                    f.config(highlightthickness=4)
+            size_lbl = tk.Label(frame, text="Choose size", font=("", 9), fg="gray")
+            size_lbl.pack()
+            def cycle_handler(event, var=target_var, fr=frame, lab=lbl, sz=size_lbl, orig=photo, fad=faded_photo):
+                current = var.get()
+                if current == 0:
+                    new_target = 1024
+                elif current == 1024:
+                    new_target = 1536
+                elif current == 1536:
+                    new_target = 2048
+                elif current == 2048:
+                    new_target = 3072
+                elif current == 3072:
+                    new_target = 0
                 else:
-                    f.config(highlightthickness=0)
-            lbl.bind("<Button-1>", toggle_handler)
-            name.bind("<Button-1>", toggle_handler)
-            items.append((p, var, photo, frame, color_pil))
+                    new_target = 1024
+                var.set(new_target)
+                if new_target > 0:
+                    fr.config(highlightthickness=4)
+                    sz.config(text=f"{new_target}px", fg="black")
+                    lab.config(image=orig)
+                    lab.image = orig
+                else:
+                    fr.config(highlightthickness=0)
+                    sz.config(text="Choose size", fg="gray")
+            lbl.bind("<Button-1>", cycle_handler)
+            name.bind("<Button-1>", cycle_handler)
+            size_lbl.bind("<Button-1>", cycle_handler)
+            items.append((p, target_var, photo, faded_photo, frame, size_lbl))
         except:
             pass
     for c in range(columns):
         inner_frame.grid_columnconfigure(c, weight=1)
 
 def unselect_all():
-    for _, var, _, frame, _ in items:
+    for item in items:
+        _, var, orig, _, frame, sz = item
         var.set(0)
         frame.config(highlightthickness=0)
+        sz.config(text="Choose size", fg="gray")
+        lab = frame.winfo_children()[0]
+        lab.config(image=orig)
+        lab.image = orig
 
 def process_selected():
-    target = get_target_size()
-    selected_any = any(v.get() for _, v, _, _, _ in items)
+    selected_any = any(var.get() > 0 for _, var, _, _, _, _ in items)
     if not selected_any:
-        messagebox.showinfo("No selection", "No images selected for processing.")
+        messagebox.showinfo("No selection", "No images have a target size selected.")
         return
-    resized_dir = os.path.join(folder, f"resized_{target}")
-    os.makedirs(resized_dir, exist_ok=True)
     count = 0
     for item in items:
-        p, var, photo, frame, color_pil = item
-        if not var.get():
+        p, var, orig, fad, frame, sz = item
+        target = var.get()
+        if target <= 0:
             continue
         try:
             im = Image.open(p)
             w, h = im.size
+            resized_dir = os.path.join(folder, f"resized_{target}")
+            os.makedirs(resized_dir, exist_ok=True)
             save_p = os.path.join(resized_dir, os.path.basename(p))
             if max(w, h) <= target:
                 shutil.copy2(p, save_p)
@@ -94,38 +110,33 @@ def process_selected():
                 if im.format == "JPEG":
                     save_kwargs = {"quality": 95, "optimize": True}
                     exif = im.info.get("exif")
-                    if exif:
+                    if exif is not None:
                         save_kwargs["exif"] = exif
                     rim.save(save_p, **save_kwargs)
                 else:
                     rim.save(save_p)
-            faded_pil = color_pil.copy().convert("RGBA")
-            faded_pil.putalpha(128)
-            faded_photo = ImageTk.PhotoImage(faded_pil)
-            lbl = frame.winfo_children()[0]
-            lbl.config(image=faded_photo)
-            lbl.image = faded_photo
+            lab = frame.winfo_children()[0]
+            lab.config(image=fad)
+            lab.image = fad
+            sz.config(text="Processed", fg="green")
             var.set(0)
             frame.config(highlightthickness=0)
             count += 1
         except Exception as e:
             print(f"Error processing {p}: {e}")
     if count > 0:
-        messagebox.showinfo("Completed", f"Processed {count} images to max {target} px.\nSaved to {resized_dir}\nFaded to mark as processed.")
+        messagebox.showinfo("Completed", f"Saved {count} images to their selected sizes.")
     else:
-        messagebox.showinfo("Completed", "No images were successfully processed.")
+        messagebox.showinfo("Completed", "Processing failed. Check console for errors.")
 
 root = tk.Tk()
-root.title("Image Preview and Resize")
-root.geometry("1300x900")
+root.title("Image Resize")
+root.geometry("1200x900")
 top = tk.Frame(root)
 top.pack(fill=tk.X, pady=10)
-tk.Button(top, text="Select Image Folder", command=select_folder).pack(side=tk.LEFT, padx=20)
-lbl_folder = tk.Label(top, text="No folder selected yet")
+tk.Button(top, text="Open Image Folder", command=select_folder).pack(side=tk.LEFT, padx=20)
+lbl_folder = tk.Label(top, text="No folder selected")
 lbl_folder.pack(side=tk.LEFT, padx=20)
-tk.Label(top, text="Max long side (px):").pack(side=tk.LEFT)
-target_size_var = tk.StringVar(value="1024")
-tk.Entry(top, textvariable=target_size_var, width=8).pack(side=tk.LEFT, padx=5)
 canvas_frame = tk.Frame(root)
 canvas_frame.pack(fill=tk.BOTH, expand=True)
 canvas = tk.Canvas(canvas_frame, bg="white")
