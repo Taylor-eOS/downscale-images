@@ -34,9 +34,9 @@ def select_folder():
     for idx, p in enumerate(paths):
         try:
             im = Image.open(p)
-            w, h = im.size
             var = tk.IntVar(value=0)
             im.thumbnail((150, 150), Image.LANCZOS)
+            color_pil = im.copy()
             photo = ImageTk.PhotoImage(im)
             row = idx // columns
             col = idx % columns
@@ -56,28 +56,28 @@ def select_folder():
                     f.config(highlightthickness=0)
             lbl.bind("<Button-1>", toggle_handler)
             name.bind("<Button-1>", toggle_handler)
-            items.append((p, var, photo, frame))
+            items.append((p, var, photo, frame, color_pil))
         except:
             pass
     for c in range(columns):
         inner_frame.grid_columnconfigure(c, weight=1)
 
 def unselect_all():
-    for _, var, _, frame in items:
+    for _, var, _, frame, _ in items:
         var.set(0)
         frame.config(highlightthickness=0)
 
 def process_selected():
     target = get_target_size()
-    selected = [p for p, v, _, _ in items if v.get()]
-    if not selected:
+    selected_any = any(v.get() for _, v, _, _, _ in items)
+    if not selected_any:
         messagebox.showinfo("No selection", "No images selected for processing.")
         return
     resized_dir = os.path.join(folder, f"resized_{target}")
     os.makedirs(resized_dir, exist_ok=True)
     count = 0
-    to_remove = []
-    for p, var, photo, frame in items:
+    for item in items:
+        p, var, photo, frame, color_pil = item
         if not var.get():
             continue
         try:
@@ -99,22 +99,25 @@ def process_selected():
                     rim.save(save_p, **save_kwargs)
                 else:
                     rim.save(save_p)
+            faded_pil = color_pil.copy().convert("RGBA")
+            faded_pil.putalpha(128)
+            faded_photo = ImageTk.PhotoImage(faded_pil)
+            lbl = frame.winfo_children()[0]
+            lbl.config(image=faded_photo)
+            lbl.image = faded_photo
+            var.set(0)
+            frame.config(highlightthickness=0)
             count += 1
-            to_remove.append((p, var, photo, frame))
         except Exception as e:
             print(f"Error processing {p}: {e}")
-    for item in to_remove:
-        if item in items:
-            items.remove(item)
-        item[3].destroy()
     if count > 0:
-        messagebox.showinfo("Completed", f"Processed {count} images to max {target} px.\nSaved to {resized_dir}\nRemoved from view.")
+        messagebox.showinfo("Completed", f"Processed {count} images to max {target} px.\nSaved to {resized_dir}\nFaded to mark as processed.")
     else:
         messagebox.showinfo("Completed", "No images were successfully processed.")
 
 root = tk.Tk()
 root.title("Image Preview and Resize")
-root.geometry("1400x900")
+root.geometry("1300x900")
 top = tk.Frame(root)
 top.pack(fill=tk.X, pady=10)
 tk.Button(top, text="Select Image Folder", command=select_folder).pack(side=tk.LEFT, padx=20)
@@ -146,3 +149,4 @@ bottom.pack(fill=tk.X, pady=10)
 tk.Button(bottom, text="Unselect all", command=unselect_all).pack(side=tk.LEFT, padx=20)
 tk.Button(bottom, text="Process Selected Images", command=process_selected).pack(side=tk.LEFT, padx=20)
 root.mainloop()
+
