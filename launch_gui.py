@@ -97,7 +97,8 @@ def process_selected():
         try:
             im = Image.open(p)
             w, h = im.size
-            resized_dir = os.path.join(folder, f"resized_{target}")
+            #resized_dir = os.path.join(folder, f"resized_{target}")
+            resized_dir = os.path.join(folder, f"resized")
             os.makedirs(resized_dir, exist_ok=True)
             save_p = os.path.join(resized_dir, os.path.basename(p))
             if max(w, h) <= target:
